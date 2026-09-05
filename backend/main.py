@@ -1,8 +1,15 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pypdf import PdfReader
 from docx import Document
+from dotenv import load_dotenv
+from groq import Groq
 import io
+import os
+import json
+
+load_dotenv()
+groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 
 app = FastAPI()
 
@@ -32,23 +39,31 @@ def extract_text_from_docx(file_bytes: bytes) -> str:
     return text
 
 
-@app.post("/upload")
-async def upload_resume(file: UploadFile = File(...)):
-    contents = await file.read()
-    filename = file.filename.lower()
+def analyze_resume(resume_text: str, job_role: str) -> dict:
+    prompt = f"""You are an expert resume reviewer and ATS (Applicant Tracking System) specialist.
 
-    if filename.endswith(".pdf"):
-        text = extract_text_from_pdf(contents)
-    elif filename.endswith(".docx"):
-        text = extract_text_from_docx(contents)
-    else:
-        raise HTTPException(status_code=400, detail="Only PDF and DOCX files are supported.")
+Analyze the following resume for someone targeting this job role: "{job_role}"
 
-    if not text.strip():
-        raise HTTPException(status_code=400, detail="Could not extract any text from this file.")
+Resume text:
+---
+{resume_text}
+---
 
-    return {
-        "filename": file.filename,
-        "text_length": len(text),
-        "preview": text[:300]
-    }
+Respond with ONLY a valid JSON object (no extra text, no markdown formatting) with exactly this structure:
+{{
+  "overall_score": <integer from 0 to 100>,
+  "strengths": ["point 1", "point 2", ...],
+  "weaknesses": ["point 1", "point 2", ...],
+  "missing_skills": ["skill 1", "skill 2", ...],
+  "ats_suggestions": ["suggestion 1", "suggestion 2", ...],
+  "formatting_suggestions": ["suggestion 1", "suggestion 2", ...]
+}}
+"""
+
+    response = groq_client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.3,
+    )
+
+    raw_output = response.choices[0].message.content
