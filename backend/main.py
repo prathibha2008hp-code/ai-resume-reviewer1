@@ -15,7 +15,10 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=[
+        "http://localhost:5173",
+        "https://ai-resume-reviewer1.vercel.app",
+    ],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -61,9 +64,36 @@ Respond with ONLY a valid JSON object (no extra text, no markdown formatting) wi
 """
 
     response = groq_client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
+        model="openai/gpt-oss-120b",
         messages=[{"role": "user", "content": prompt}],
         temperature=0.3,
     )
 
     raw_output = response.choices[0].message.content
+    analysis = json.loads(raw_output)
+    return analysis
+
+
+@app.post("/upload")
+async def upload_resume(file: UploadFile = File(...), job_role: str = Form(...)):
+    contents = await file.read()
+    filename = file.filename.lower()
+
+    if filename.endswith(".pdf"):
+        text = extract_text_from_pdf(contents)
+    elif filename.endswith(".docx"):
+        text = extract_text_from_docx(contents)
+    else:
+        raise HTTPException(status_code=400, detail="Only PDF and DOCX files are supported.")
+
+    if not text.strip():
+        raise HTTPException(status_code=400, detail="Could not extract any text from this file.")
+
+    analysis = analyze_resume(text, job_role)
+
+    return {
+        "filename": file.filename,
+        "job_role": job_role,
+        "text_length": len(text),
+        "analysis": analysis
+    }

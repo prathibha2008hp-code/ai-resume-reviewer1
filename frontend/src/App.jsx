@@ -4,40 +4,68 @@ import './App.css'
 function App() {
   const [selectedFile, setSelectedFile] = useState(null)
   const [jobRole, setJobRole] = useState('')
-  const [uploadResult, setUploadResult] = useState(null)
+  const [result, setResult] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
 
   const handleFileChange = (event) => {
-    const file = event.target.files[0]
-    setSelectedFile(file)
-    setUploadResult(null)
+    setSelectedFile(event.target.files[0])
+    setResult(null)
+    setError('')
   }
 
   const handleUpload = async () => {
     if (!selectedFile || !jobRole.trim()) return
 
+    setLoading(true)
+    setError('')
+    setResult(null)
+
     const formData = new FormData()
     formData.append('file', selectedFile)
     formData.append('job_role', jobRole)
 
-    const response = await fetch('http://127.0.0.1:8000/upload', {
-      method: 'POST',
-      body: formData,
-    })
+    try {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/upload`, {
+        method: 'POST',
+        body: formData,
+      })
 
-    const data = await response.json()
-    setUploadResult(data)
+      if (!response.ok) {
+        const errData = await response.json()
+        throw new Error(errData.detail || 'Something went wrong')
+      }
+
+      const data = await response.json()
+      setResult(data)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
   }
 
+  const renderList = (title, items) => (
+    <div className="mb-4">
+      <h3 className="font-semibold text-gray-800">{title}</h3>
+      <ul className="list-disc list-inside text-gray-700 text-sm">
+        {items.map((item, i) => (
+          <li key={i}>{item}</li>
+        ))}
+      </ul>
+    </div>
+  )
+
   return (
-    <div className="App bg-blue-100 min-h-screen flex flex-col items-center justify-center gap-4 p-4">
-      <h1 className="text-2xl font-bold">AI Resume Reviewer</h1>
+    <div className="min-h-screen bg-blue-50 flex flex-col items-center p-6 gap-4">
+      <h1 className="text-3xl font-bold text-gray-800">AI Resume Reviewer</h1>
 
       <input
         type="text"
         placeholder="Target job role (e.g. Frontend Developer)"
         value={jobRole}
         onChange={(e) => setJobRole(e.target.value)}
-        className="bg-white p-2 rounded border border-gray-300 w-72"
+        className="bg-white p-2 rounded border border-gray-300 w-80"
       />
 
       <input
@@ -50,18 +78,33 @@ function App() {
       {selectedFile && jobRole.trim() && (
         <button
           onClick={handleUpload}
-          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+          disabled={loading}
+          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:bg-gray-400"
         >
-          Upload Resume
+          {loading ? 'Analyzing...' : 'Analyze Resume'}
         </button>
       )}
 
-      {uploadResult && (
-        <div className="text-center bg-white p-4 rounded shadow max-w-md">
-          <p className="font-semibold">{uploadResult.filename}</p>
-          <p className="text-sm text-gray-600">Target role: {uploadResult.job_role}</p>
-          <p className="text-sm text-gray-600">Extracted {uploadResult.text_length} characters</p>
-          <p className="text-sm text-gray-800 mt-2 text-left whitespace-pre-wrap">{uploadResult.preview}...</p>
+      {error && (
+        <p className="text-red-600 bg-red-100 px-4 py-2 rounded">{error}</p>
+      )}
+
+      {result && (
+        <div className="bg-white p-6 rounded shadow max-w-xl w-full">
+          <div className="flex justify-between items-center mb-4">
+            <p className="text-gray-600 text-sm">
+              {result.filename} — Target: {result.job_role}
+            </p>
+            <p className="text-2xl font-bold text-blue-600">
+              {result.analysis.overall_score}/100
+            </p>
+          </div>
+
+          {renderList('Strengths', result.analysis.strengths)}
+          {renderList('Weaknesses', result.analysis.weaknesses)}
+          {renderList('Missing Skills', result.analysis.missing_skills)}
+          {renderList('ATS Suggestions', result.analysis.ats_suggestions)}
+          {renderList('Formatting Suggestions', result.analysis.formatting_suggestions)}
         </div>
       )}
     </div>
