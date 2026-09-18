@@ -97,3 +97,45 @@ async def upload_resume(file: UploadFile = File(...), job_role: str = Form(...))
         "text_length": len(text),
         "analysis": analysis
     }
+def match_job_description(resume_text: str, job_description: str) -> dict:
+    prompt = f"""Compare this resume to the job description below.
+
+Resume:
+---
+{resume_text}
+---
+
+Job Description:
+---
+{job_description}
+---
+
+Respond with ONLY a valid JSON object with exactly this structure:
+{{
+  "match_percentage": <integer 0-100>,
+  "matching_skills": ["skill1", "skill2", ...],
+  "missing_skills": ["skill1", "skill2", ...],
+  "recommended_keywords": ["keyword1", "keyword2", ...]
+}}
+"""
+    response = groq_client.chat.completions.create(
+        model="openai/gpt-oss-120b",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.3,
+    )
+    return json.loads(response.choices[0].message.content)
+def improve_bullet_point(original_text: str) -> str:
+    prompt = f"""Rewrite this resume bullet point to be more impactful, using strong action verbs and quantifiable results where reasonable. Return ONLY the improved sentence, nothing else, no quotes.
+
+Original: {original_text}"""
+
+    response = groq_client.chat.completions.create(
+        model="openai/gpt-oss-120b",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.4,
+    )
+    return response.choices[0].message.content.strip()
+@app.post("/improve")
+async def improve_text(original_text: str = Form(...)):
+    improved = improve_bullet_point(original_text)
+    return {"original": original_text, "improved": improved}

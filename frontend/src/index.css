@@ -1,1 +1,14 @@
+@import '@fontsource/plus-jakarta-sans/700.css';
+@import '@fontsource/plus-jakarta-sans/600.css';
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/500.css';
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
+
+body {
+  font-family: 'Inter', sans-serif;
+}
+
+h1, h2, h3 {
+  font-family: 'Plus Jakarta Sans', sans-serif;
+}
