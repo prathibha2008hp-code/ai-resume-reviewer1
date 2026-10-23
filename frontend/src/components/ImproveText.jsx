@@ -1,27 +1,34 @@
 import { useState } from 'react'
+import { authenticatedApiFetch } from '../authenticatedApi'
 
 function ImproveText() {
   const [text, setText] = useState('')
   const [improved, setImproved] = useState('')
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
 
   const handleImprove = async () => {
     if (!text.trim()) return
     setLoading(true)
     setImproved('')
+    setError('')
 
     const formData = new FormData()
     formData.append('original_text', text)
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/improve`, {
+      const response = await authenticatedApiFetch('/improve', {
         method: 'POST',
         body: formData,
       })
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.detail || 'Unable to improve this text. Please try again.')
+      }
       const data = await response.json()
       setImproved(data.improved)
     } catch (err) {
-      console.error(err)
+      setError(err instanceof Error ? err.message : 'Unable to improve this text. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -49,6 +56,12 @@ function ImproveText() {
       >
         {loading ? 'Improving...' : 'Improve This Line'}
       </button>
+
+      {error && (
+        <p role="alert" className="mb-4 text-sm text-red-600">
+          {error}
+        </p>
+      )}
 
       {improved && (
         <div className="grid md:grid-cols-2 gap-4">

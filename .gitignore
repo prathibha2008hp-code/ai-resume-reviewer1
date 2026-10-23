@@ -1,6 +1,11 @@
 # Environment variables (secrets)
 .env
 
+# Local SQLite databases
+*.db
+*.sqlite
+*.sqlite3
+
 # Node
 node_modules/
 
