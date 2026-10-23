@@ -1,6 +1,8 @@
+import logging
 import os
 from io import BytesIO
 from pathlib import Path
+from typing import NoReturn
 from zipfile import BadZipFile
 
 from docx import Document
@@ -8,13 +10,25 @@ from docx.opc.exceptions import PackageNotFoundError
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
-from groq import APIError, Groq
+from groq import (
+    APIConnectionError,
+    APIError,
+    APIStatusError,
+    APITimeoutError,
+    AuthenticationError,
+    BadRequestError,
+    Groq,
+    RateLimitError,
+    UnprocessableEntityError,
+)
 from lxml.etree import XMLSyntaxError
 from pydantic import BaseModel, Field, ValidationError
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 
 load_dotenv(Path(__file__).with_name(".env"))
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI()
 
@@ -57,6 +71,55 @@ class JobMatch(BaseModel):
 
 class ImprovedBullet(BaseModel):
     improved: str
+
+
+def _safe_error_identifier(value: object) -> str | None:
+    if (
+        not isinstance(value, str)
+        or not value
+        or len(value) > 64
+        or not value.isascii()
+        or not all(character.isalnum() or character in "._-" for character in value)
+    ):
+        return None
+    return value
+
+
+def _log_groq_api_error(category: str, error: APIError) -> None:
+    status_code = None
+    request_id = None
+    provider_type = None
+    provider_code = None
+
+    if isinstance(error, APIStatusError):
+        status_code = error.status_code
+        request_id = _safe_error_identifier(error.response.headers.get("x-request-id"))
+
+    if isinstance(error.body, dict):
+        details = error.body.get("error", error.body)
+        if isinstance(details, dict):
+            provider_type = _safe_error_identifier(details.get("type"))
+            provider_code = _safe_error_identifier(details.get("code"))
+
+    logger.error(
+        "Groq request failed: category=%s exception=%s model=%s status=%s "
+        "provider_type=%s provider_code=%s request_id=%s",
+        category,
+        type(error).__name__,
+        MODEL,
+        status_code,
+        provider_type,
+        provider_code,
+        request_id,
+    )
+
+
+def _raise_ai_service_error(category: str, error: APIError) -> NoReturn:
+    _log_groq_api_error(category, error)
+    raise HTTPException(
+        status_code=502,
+        detail="The AI service could not analyze the resume.",
+    ) from error
 
 
 def extract_resume_text(filename: str, content: bytes) -> str:
@@ -117,16 +180,35 @@ def analyze_with_groq(prompt: str, response_model: type[BaseModel]) -> dict:
             response_format={"type": "json_object"},
             temperature=0.2,
         )
+    except AuthenticationError as error:
+        _raise_ai_service_error("authentication failure", error)
+    except RateLimitError as error:
+        _raise_ai_service_error("rate limit", error)
+    except (BadRequestError, UnprocessableEntityError) as error:
+        _raise_ai_service_error("invalid request", error)
+    except APITimeoutError as error:
+        _raise_ai_service_error("timeout", error)
+    except APIConnectionError as error:
+        _raise_ai_service_error("connection failure", error)
+    except APIStatusError as error:
+        _raise_ai_service_error("provider HTTP failure", error)
     except APIError as error:
-        raise HTTPException(status_code=502, detail="The AI service could not analyze the resume.") from error
+        _raise_ai_service_error("other API failure", error)
 
     if not response.choices or not response.choices[0].message.content:
+        logger.warning("Groq returned an empty completion: model=%s", MODEL)
         raise HTTPException(status_code=502, detail="The AI service returned an empty response.")
 
     content = response.choices[0].message.content
     try:
         result = response_model.model_validate_json(content or "")
     except ValidationError as error:
+        logger.warning(
+            "Groq returned invalid structured output: exception=%s validation_errors=%d model=%s",
+            type(error).__name__,
+            error.error_count(),
+            MODEL,
+        )
         raise HTTPException(status_code=502, detail="The AI service returned an invalid analysis.") from error
     return result.model_dump()
 

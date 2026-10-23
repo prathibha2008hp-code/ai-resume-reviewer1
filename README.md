@@ -5,7 +5,7 @@ An AI-powered web app that analyzes resumes against a target job role and provid
 ## Tech Stack
 - **Frontend:** React + Vite + Tailwind CSS
 - **Backend:** Python + FastAPI
-- **AI:** Groq API (Llama 3.3 70B)
+- **AI:** Groq API (`openai/gpt-oss-120b`)
 - **File parsing:** pypdf, python-docx
 
 ## Features
